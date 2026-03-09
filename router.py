@@ -4,14 +4,30 @@ import httpx
 import random, time, json, logging
 import asyncio
 from contextlib import asynccontextmanager
+from prometheus_client import Gauge
 
 PROMETHEUS_URL = "http://prometheus:9090"
+
+
+def update_weight_metrics():
+    for node_id, weight in weights.items():
+        ROUTING_WEIGHT.labels(node_id=node_id).set(weight)
+
 
 weights = {
     "server_health" : 0.60,
     "server_degraded": 0.30,
     "server_critical" : 0.10
 }
+
+
+ROUTING_WEIGHT = Gauge(
+    'router_server_weight',
+    'Current routing weight per server',
+    ['node_id']
+)
+
+update_weight_metrics()
 
 async def check_server_health():
     while True:
@@ -69,6 +85,8 @@ async def check_server_health():
                             "reason" : f"error_rate = {error_pct:.1%}",
                             "action" : f"weight_restored_to_{default_weights[node_id]}"
                         }))
+                    update_weight_metrics()
+
         except Exception as e:
             print(f"Health check failed: {e}")
 
@@ -159,6 +177,7 @@ async def predict():
 def config(new_weights: dict = Body(...)):
     global weights
     weights = new_weights
+    update_weight_metrics()
     return {"updated_weights": weights}
 
 @app.post("/eval")
