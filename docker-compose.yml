@@ -1,0 +1,73 @@
+version : '3'
+services:
+  router:
+    build:
+      context:  .
+      dockerfile: Dockerfile.router
+    ports:
+      - "8080:8080"
+    
+  server_health:
+    build:
+      context: ./servers
+      dockerfile : Dockerfile
+    environment:
+      - SERVER_NAME=server_health
+      - PORT=8000
+    ports:
+      - "8000:8000"
+
+  server_degraded:
+    build:
+      context: ./servers
+      dockerfile : Dockerfile
+    environment:
+      - SERVER_NAME=server_degraded
+      - PORT=8001
+    ports:
+      - "8001:8001"
+
+  server_critical:
+    build:
+      context: ./servers
+      dockerfile : Dockerfile
+    environment:
+      - SERVER_NAME=server_critical
+      - PORT=8002
+    ports:
+      - "8002:8002"
+
+    
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  loki:
+    image: grafana/loki:3.0.0
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./promtail-config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/provisioning:/etc/grafana/provisioning/dashboards
+
+volumes:
+  loki_data:
+  grafana_data:
