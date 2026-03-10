@@ -1,3 +1,5 @@
+import anthropic
+import os
 from fastapi import FastAPI, Body, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
 import httpx
@@ -29,6 +31,48 @@ ROUTING_WEIGHT = Gauge(
 
 update_weight_metrics()
 
+async def fetch_context():
+    context = {}
+    async with httpx.AsyncClient() as client:
+        r = await client.get(f"{PROMETHEUS_URL}/api/v1/query",
+            params = {"query" : 'sum(rate(requests_total_custom_total{outcome="error"}[2m])) by (node_id)'},
+            timeout= 5.0)
+        context["error_rates"] = r.json()["data"]["result"]
+        
+        r = await client.get(f"{PROMETHEUS_URL}/api/v1/query",
+            params = {"query" : 'histogram_quantile(0.95, sum(rate(healthy_predict_latency_seconds_bucket[2m])) by (le))'},
+            timeout= 5.0)
+        context["p95_healthy"] = r.json()["data"]["result"]
+        
+        r = await client.get(f"{PROMETHEUS_URL}/api/v1/query",
+            params = {"query" : 'histogram_quantile(0.95, sum(rate(degraded_predict_latency_seconds_bucket[2m])) by (le))'},
+            timeout= 5.0)
+        context["p95_degraded"] = r.json()["data"]["result"]
+        
+        r = await client.get(f"{PROMETHEUS_URL}/api/v1/query",
+            params = {"query" : 'histogram_quantile(0.95, sum(rate(critical_predict_latency_seconds_bucket[2m])) by (le))'},
+            timeout= 5.0)
+        context["p95_critical"] = r.json()["data"]["result"]
+        
+        r = await client.get(
+            "http://loki:3100/loki/api/v1/query_range",
+            params={
+                "query": '{container=~"/edgewatch-server.*"} | json | status_code=`503`',
+                "limit": 20,
+                "start": str(int(time.time() - 300) * 1000000000),
+                "end": str(int(time.time()) * 1000000000)
+            },
+            timeout=5.0)
+        
+        loki_data = r.json()
+        logs = []
+        for stream in loki_data.get("data", {}).get("result", []):
+            for entry in stream.get("values", []):
+                logs.append(entry[1])
+        context["recent_error_logs"] = logs[:20]
+    context["current_weights"] = weights
+    return context
+        
 async def check_server_health():
     while True:
         try:
@@ -194,6 +238,51 @@ async def trigger_eval():
             results.append(result)
     return {"results" : results}
 
+@app.get("/analyze")
+async def analyze_incident():
+    context = await fetch_context()
+    prompt = f"""You are an AI Site Reliability Engineer analyzing an incident in a Tesla AI inference infrastructure.  
+
+    `Here is the current system state:
+
+    Current routing weights: {json.dumps(context['current_weights'], indent=2)}
+
+    Error rates per server (requests/sec): {json.dumps(context['error_rates'], indent=2)}
+
+    p95 Latency:
+    - server_health: {context['p95_healthy']}
+    - server_degraded: {context['p95_degraded']}
+    - server_critical: {context['p95_critical']}
+
+    Recent 503 error logs (last 5 minutes):
+    {chr(10).join(context['recent_error_logs'][:10])}
+
+    Based on this data:
+    1. Identify which servers are degraded and why
+    2. Assess the severity (P0/P1/P2)
+    3. Explain the likely root cause
+    4. Recommend immediate actions
+    5. Recommend longer term fixes
+    Be concise and specific. Format as a clear incident report."""
+    
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    message = client.messages.create(
+        model = "claude-opus-4-6",
+        max_tokens=1024,
+        messages = [{"role":"user","content":prompt}]
+    )
+
+    analysis = message.content[0].text
+    print(json.dumps({
+        "event" : "Incident_Analysis",
+        "timestamp" : time.time(),
+        "analysis" : analysis
+    }))
+
+    return {
+        "analysis" : analysis,
+        "context" : context
+    } 
 
 
 

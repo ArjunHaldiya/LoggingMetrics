@@ -6,7 +6,8 @@ services:
       dockerfile: Dockerfile.router
     ports:
       - "8080:8080"
-    
+    environment:
+      - .env
   server_health:
     build:
       context: ./servers
