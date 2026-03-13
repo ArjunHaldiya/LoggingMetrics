@@ -1,4 +1,4 @@
-import anthropic
+import google.generativeai as genai
 import os
 from fastapi import FastAPI, Body, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -238,10 +238,10 @@ async def trigger_eval():
             results.append(result)
     return {"results" : results}
 
-@app.get("/analyze")
+@app.post("/analyze")
 async def analyze_incident():
     context = await fetch_context()
-    prompt = f"""You are an AI Site Reliability Engineer analyzing an incident in a Tesla AI inference infrastructure.  
+    prompt = f"""You are an AI Site Reliability Engineer analyzing an incident.  
 
     `Here is the current system state:
 
@@ -263,16 +263,13 @@ async def analyze_incident():
     3. Explain the likely root cause
     4. Recommend immediate actions
     5. Recommend longer term fixes
-    Be concise and specific. Format as a clear incident report."""
+    Be concise and specific. Format as a clear incident report with each analysis under 50 words to maintain clarity and briefness."""
     
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    message = client.messages.create(
-        model = "claude-opus-4-6",
-        max_tokens=1024,
-        messages = [{"role":"user","content":prompt}]
-    )
+    genai.configure(api_key=os.environ.get("GEMINI_API"))
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    response = model.generate_content(prompt)
+    analysis = response.text
 
-    analysis = message.content[0].text
     print(json.dumps({
         "event" : "Incident_Analysis",
         "timestamp" : time.time(),

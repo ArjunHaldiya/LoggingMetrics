@@ -1,4 +1,4 @@
 FROM python:3.11-slim
-RUN pip install fastapi uvicorn prometheus-fastapi-instrumentator prometheus-client httpx anthropic
+RUN pip install fastapi uvicorn prometheus-fastapi-instrumentator prometheus-client httpx google-generativeai
 COPY router.py .
 CMD uvicorn router:app --port 8080 --host 0.0.0.0

@@ -6,8 +6,9 @@ services:
       dockerfile: Dockerfile.router
     ports:
       - "8080:8080"
-    environment:
+    env_file:
       - .env
+  
   server_health:
     build:
       context: ./servers
@@ -68,7 +69,11 @@ services:
       - grafana_data:/var/lib/grafana
       - ./grafana/dashboards:/var/lib/grafana/dashboards
       - ./grafana/provisioning:/etc/grafana/provisioning/dashboards
-
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ORG_ROLE=Viewer
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      
 volumes:
   loki_data:
   grafana_data:
